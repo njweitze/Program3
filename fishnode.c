@@ -183,10 +183,8 @@ int my_fishnode_l3_receive(void *l3frame, int len, uint8_t protocol) {
          insert_entry(header->src, header->packet_id); // Update hash table
 
          // Decrement TTL and forward if valid
-         if (header->ttl > 1) {
-            header->ttl--;
-            fish_l3.fish_l3_forward(l3frame, len);
-         }
+         header->ttl--;
+         fish_l3.fish_l3_forward(l3frame, len);
       }
    } else { 
       // Forward unicast packets if TTL is valid
