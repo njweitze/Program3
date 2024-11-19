@@ -266,9 +266,9 @@ int my_fish_l3_forward(void *l3frame, int len)
 }
 
 // Callback to broadcast DV advertisement
-void my_timed_event(void*)
-{
-}
+// void my_timed_event(void*)
+// {
+// }
 
 // Full functionality
 void* my_add_fwtable_entry(fnaddr_t dst, int prefix_length, fnaddr_t next_hop,
