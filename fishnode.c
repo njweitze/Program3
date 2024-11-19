@@ -170,7 +170,7 @@ int my_fishnode_l3_receive(void *l3frame, int len, uint8_t protocol) {
    fnaddr_t dest_addr = header->dst;
    fnaddr_t node_addr = fish_getaddress(); // This node's address
 
-   // If packet is meant fo this node, hand it to L4 layer
+   // If packet is meant for this node, hand it to L4 layer
    if (dest_addr == node_addr) {
       void *l4frame = (uint8_t *)l3frame + sizeof(struct L3_hdr);
       int l4len = len - sizeof(struct L3_hdr);
@@ -179,10 +179,11 @@ int my_fishnode_l3_receive(void *l3frame, int len, uint8_t protocol) {
       // Process broadcast packets
       time_t timestamp = get_timestamp(header->src, header->packet_id);
 
-      if (timestamp != -1) {
+      if (timestamp == -1) {
          insert_entry(header->src, header->packet_id); // Update hash table
-
-         // Decrement TTL and forward if valid
+         void *l4frame = (uint8_t *)l3frame + sizeof(struct L3_hdr);
+         int l4len = len - sizeof(struct L3_hdr);
+         fish_l4.fish_l4_receive(l4frame, l4len, header->protocol, header->src);
          header->ttl--;
          fish_l3.fish_l3_forward(l3frame, len);
       }
