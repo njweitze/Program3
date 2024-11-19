@@ -99,16 +99,13 @@ void my_resolve_fnaddr(fnaddr_t addr, arp_resolution_cb cb, void *param)
 // Initialize the hash table
 HashEntry* hash_table[HASH_TABLE_SIZE];
 
-// Hash function to combine src and packet_id
 unsigned int hash_function(fnaddr_t src, uint32_t packet_id) {
    return (src ^ packet_id) % HASH_TABLE_SIZE;
 }
 
-// Function to insert a new entry into the hash table 
 void insert_entry(fnaddr_t src, uint16_t packet_id) {
    unsigned int index = hash_function(src, packet_id);
 
-   // Allocate memory for the new entry
    HashEntry *new_entry = (HashEntry *)malloc(sizeof(HashEntry));
 
    new_entry->src = src;
@@ -116,7 +113,7 @@ void insert_entry(fnaddr_t src, uint16_t packet_id) {
    new_entry->timestamp = time(NULL);
    new_entry->next = NULL;
 
-   // Insert into the hash table (handle collisions with chaining)
+   // Insert into hash table
    if (hash_table[index] == NULL) {
       hash_table[index] = new_entry; // No collision
    } else {
@@ -146,7 +143,7 @@ void insert_entry(fnaddr_t src, uint16_t packet_id) {
    }
 }
 
-// Function to retrieve the timestamp for a given src and packet_id
+// Retrieve the timestamp for a given src and packet_id
 time_t get_timestamp(fnaddr_t src, uint16_t packet_id) {
    unsigned int index = hash_function(src, packet_id);
 
@@ -155,7 +152,7 @@ time_t get_timestamp(fnaddr_t src, uint16_t packet_id) {
       if (current->src == src && current->packet_id == packet_id) {
          time_t current_time = time(NULL);
          if (current_time - current->timestamp > ENTRY_TTL_SECONDS) {
-               // Entry has expired
+               // Entry expired
                return -1;
          }
          return current->timestamp;
@@ -168,98 +165,105 @@ time_t get_timestamp(fnaddr_t src, uint16_t packet_id) {
 
 
 int my_fishnode_l3_receive(void *l3frame, int len, uint8_t protocol) {
+   // Parse the L3 header
    struct L3_hdr *header = (struct L3_hdr *)l3frame;
    fnaddr_t dest_addr = header->dst;
-   fnaddr_t node_addr = fish_getaddress();
+   fnaddr_t node_addr = fish_getaddress(); // This node's address
 
+   // If packet is meant fo this node, hand it to L4 layer
    if (dest_addr == node_addr) {
       void *l4frame = (uint8_t *)l3frame + sizeof(struct L3_hdr);
       int l4len = len - sizeof(struct L3_hdr);
       fish_l4.fish_l4_receive(l4frame, l4len, header->protocol, header->src);
-   } 
-   else if (dest_addr == ALL_NEIGHBORS) {
+   } else if (dest_addr == ALL_NEIGHBORS) { 
+      // Process broadcast packets
       time_t timestamp = get_timestamp(header->src, header->packet_id);
 
       if (timestamp != -1) {
-         insert_entry(header->src, header->packet_id);
+         insert_entry(header->src, header->packet_id); // Update hash table
+
+         // Decrement TTL and forward if valid
          if (header->ttl > 1) {
             header->ttl--;
-            void *l4frame = (uint8_t *)l3frame + sizeof(struct L3_hdr);
-            int l4len = len - sizeof(struct L3_hdr);
-            fish_l4.fish_l4_receive(l4frame, l4len, header->protocol, header->src);
             fish_l3.fish_l3_forward(l3frame, len);
          }
       }
-   }
-   else {
+   } else { 
+      // Forward unicast packets if TTL is valid
       if (header->ttl > 1) {
-            header->ttl--;
-            fish_l3.fish_l3_forward(l3frame, len);
+         header->ttl--;
+         fish_l3.fish_l3_forward(l3frame, len);
       }
    }
+
    return 0;
 }
 
+
 int my_fish_l3_send(void *l4frame, int len, fnaddr_t dst_addr, uint8_t proto, uint8_t ttl)
 {
-   // Set TTL to maximum if the provided TTL is 0 or greater than the maximum
+   // Set the TTL to the default maximum if invalid
    if (ttl == 0 || ttl > MAX_TTL) {
       ttl = MAX_TTL;
    }
 
-   // Allocate memory for the L3 frame, which includes the header and the L4 frame
-   int l3_header_len = sizeof(struct L3_hdr); // Assuming a defined L3 header struct
+   // Allocate memory for L3 frame (L3 header + L4 data)
+   int l3_header_len = sizeof(struct L3_hdr); 
    void *l3frame = malloc(l3_header_len + len);
 
-   // Initialize the L3 header (Assuming a struct l3_header is defined in fish.h)
+   // Populate L3 header
    struct L3_hdr *header = (struct L3_hdr *)l3frame;
-   header->dst = dst_addr;    // Destination L3 address
+   header->dst = dst_addr;
    header->src = fish_getaddress();
-   header->protocol = proto;     // Protocol type for the L4 frame
-   header->ttl = ttl;         // Set TTL
+   header->protocol = proto;
+   header->ttl = ttl;
 
-   // Copy the L4 frame data into the L3 frame right after the header
+   // Copy the L4 frame into L3 frame
    memcpy((uint8_t *)l3frame + l3_header_len, l4frame, len);
 
-   // Forward the L3 frame using the fish_l3_forward function
+   // Forward the L3 frame to the next hop
    fish_l3.fish_l3_forward(l3frame, l3_header_len + len);
 
-   // Free the allocated L3 frame memory after forwarding
    free(l3frame);
 
-   return 0; // Return 0 as the return value is ignored
+   return 0;
 }
 
-int my_fish_l3_forward(void *l3frame, int len)
-{
+
+int my_fish_l3_forward(void *l3frame, int len) {
+   // Extract the L3 header
    struct L3_hdr *header = (struct L3_hdr *)l3frame;
    fnaddr_t dest_addr = header->dst;
-   fnaddr_t my_addr = fish_getaddress();
+   fnaddr_t node_addr = fish_getaddress(); // This node's address
 
-   if (header->ttl == 0 && dest_addr != my_addr) {
-      fish_fcmp.send_fcmp_response(l3frame, len, 1);
+   // If TTL has expired and packet is not for this node, fcmp response
+   if (header->ttl == 0 && dest_addr != node_addr) {
+      fish_fcmp.send_fcmp_response(l3frame, len, 1); // TTL expired
       return 0;
    }
 
+   // Find next hop using forwarding table
    fnaddr_t next_hop = fish_fwd.longest_prefix_match(dest_addr);
 
-   if(dest_addr == ALL_NEIGHBORS) {
+   // broadcast or for this node
+   if (dest_addr == ALL_NEIGHBORS) {
       next_hop = ALL_NEIGHBORS;
+   } else if (dest_addr == node_addr) {
+      next_hop = node_addr;
    }
 
-   if(dest_addr == my_addr) {
-      next_hop = my_addr;
-   }
-
+   // If no valid route exists, fcmp response
    if (next_hop == 0) {
-      fish_fcmp.send_fcmp_response(l3frame, len, 2);
+      fish_fcmp.send_fcmp_response(l3frame, len, 2); // No route
       return 0;
    }
 
+   // Forward the packet to next hop
    fish_l2.fish_l2_send(l3frame, next_hop, len, 1);
 
    return 0;
 }
+
 
 // Callback to broadcast DV advertisement
 // void my_timed_event(void*)
