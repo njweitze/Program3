@@ -146,8 +146,6 @@ void insert_entry(fnaddr_t src, uint16_t packet_id) {
    }
 }
 
-
-
 // Function to retrieve the timestamp for a given src and packet_id
 time_t get_timestamp(fnaddr_t src, uint16_t packet_id) {
    unsigned int index = hash_function(src, packet_id);
@@ -178,29 +176,27 @@ int my_fishnode_l3_receive(void *l3frame, int len, uint8_t protocol) {
       void *l4frame = (uint8_t *)l3frame + sizeof(struct L3_hdr);
       int l4len = len - sizeof(struct L3_hdr);
       fish_l4.fish_l4_receive(l4frame, l4len, header->protocol, header->src);
-   } else if (dest_addr == ALL_NEIGHBORS) {
+   } 
+   else if (dest_addr == ALL_NEIGHBORS) {
       time_t timestamp = get_timestamp(header->src, header->packet_id);
 
       if (timestamp != -1) {
-         return 0;
-      } else {
          insert_entry(header->src, header->packet_id);
          if (header->ttl > 1) {
             header->ttl--;
+            void *l4frame = (uint8_t *)l3frame + sizeof(struct L3_hdr);
+            int l4len = len - sizeof(struct L3_hdr);
+            fish_l4.fish_l4_receive(l4frame, l4len, header->protocol, header->src);
             fish_l3.fish_l3_forward(l3frame, len);
-         } else {
-            return 0;
          }
       }
-   } else {
+   }
+   else {
       if (header->ttl > 1) {
-         header->ttl--;
-         fish_l3.fish_l3_forward(l3frame, len);
-      } else {
-         return 0;
+            header->ttl--;
+            fish_l3.fish_l3_forward(l3frame, len);
       }
    }
-
    return 0;
 }
 
