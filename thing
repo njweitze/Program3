@@ -1,0 +1,25 @@
+struct L3Header header = (struct L3Header)l3frame;
+
+// extract fields
+fnaddr_t dest_addr = header->dest_l3_addr; // ALL_NEIGHBORS
+fnaddr_t src_addr = header->src_l3_addr;
+uint32_t packet_id = ntohl(header->packet_id);
+
+fnaddr_t my_addr = fish_getaddress();
+
+    // Check TTL
+    if (header->ttl == 0) {
+        return 0;
+    }
+
+if (dest_addr == my_addr) {
+
+        int payload_len = len - sizeof(struct L3Header);
+
+        // L4 is the L3 payload
+        void l4frame = (uint8_t)l3frame + sizeof(struct L3Header);
+
+        fish_l4.fish_l4_receive(l4frame, payload_len, header->protocol, src_addr);
+
+        return 0;
+}
